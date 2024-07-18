@@ -1,0 +1,153 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Resources": {
+		"ExerciseLambdaFunction": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"Handler": "lambda_function.lambda_handler",
+				"Role": {
+					"Fn::GetAtt": [
+						"ExerciseLambdaExecutionRole",
+						"Arn"
+					]
+				},
+				"Code": {
+					"ZipFile": {
+						"Fn::Join": [
+							"\n",
+							[
+								"import boto3",
+								"import os",
+								"import json",
+								"from botocore.exceptions import ClientError",
+								"",
+								"ssm_client = boto3.client('ssm')",
+								"s3_client = boto3.client('s3')",
+								"",
+								"def lambda_handler(event, context):",
+								"    if event['RequestType'] == 'Delete':",
+								"        send_response(event, context, 'SUCCESS', {})",
+								"        return",
+								"",
+								"    try:",
+								"        param = ssm_client.get_parameter(Name='UserName')",
+								"        param_value = param['Parameter']['Value']",
+								"",
+								"        bucket_name = os.environ['S3_BUCKET']",
+								"        file_name = 'user_data.txt'",
+								"        file_content = f\"UserName={param_value}\"",
+								"",
+								"        s3_client.put_object(Bucket=bucket_name, Key=file_name, Body=file_content)",
+								"",
+								"        print(f\"Successfully stored {param_value} in {bucket_name}/{file_name}\")",
+								"",
+								"        send_response(event, context, 'SUCCESS', {})",
+								"    except ClientError as e:",
+								"        print(f\"Error: {e}\")",
+								"        send_response(event, context, 'FAILED', {})",
+								"",
+								"def send_response(event, context, response_status, response_data):",
+								"    response_url = event['ResponseURL']",
+								"",
+								"    response_body = json.dumps({",
+								"        'Status': response_status,",
+								"        'Reason': 'See the details in CloudWatch Log Stream: ' + context.log_stream_name,",
+								"        'PhysicalResourceId': context.log_stream_name,",
+								"        'StackId': event['StackId'],",
+								"        'RequestId': event['RequestId'],",
+								"        'LogicalResourceId': event['LogicalResourceId'],",
+								"        'Data': response_data",
+								"    })",
+								"",
+								"    headers = {",
+								"        'Content-Type': '',",
+								"        'Content-Length': str(len(response_body))",
+								"    }",
+								"",
+								"    try:",
+								"        response = requests.put(response_url, data=response_body, headers=headers)",
+								"        print('Status code:', response.reason)",
+								"    except Exception as e:",
+								"        print('send(..) failed executing requests.put(..):', str(e))"
+							]
+						]
+					}
+				},
+				"Runtime": "python3.8",
+				"Environment": {
+					"Variables": {
+						"S3_BUCKET": {
+							"Ref": "S3Bucket"
+						}
+					}
+				}
+			}
+		},
+		"ExerciseLambdaExecutionRole": {
+			"Type": "AWS::IAM::Role",
+			"Properties": {
+				"AssumeRolePolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [
+						{
+							"Effect": "Allow",
+							"Principal": {
+								"Service": "lambda.amazonaws.com"
+							},
+							"Action": "sts:AssumeRole"
+						}
+					]
+				},
+				"Policies": [
+					{
+						"PolicyName": "LambdaS3SSMPolicy",
+						"PolicyDocument": {
+							"Version": "2012-10-17",
+							"Statement": [
+								{
+									"Effect": "Allow",
+									"Action": "ssm:GetParameter",
+									"Resource": "arn:aws:ssm:us-east-1:905418071139:parameter/UserName"
+								},
+								{
+									"Effect": "Allow",
+									"Action": "s3:PutObject",
+									"Resource": {
+										"Fn::Sub": "arn:aws:s3:::stackname10-s3bucket-usmgzcs70y2f/*"
+									}
+								},
+								{
+									"Effect": "Allow",
+									"Action": [
+										"logs:CreateLogGroup",
+										"logs:CreateLogStream",
+										"logs:PutLogEvents"
+									],
+									"Resource": "*"
+								}
+							]
+						}
+					}
+				]
+			}
+		},
+		"S3Bucket": {
+			"Type": "AWS::S3::Bucket",
+			"DeletionPolicy": "Retain"
+		}
+	},
+	"Outputs": {
+		"LambdaFunctionName": {
+			"Description": "Name of the Lambda function",
+			"Value": {
+				"Ref": "ExerciseLambdaFunction"
+			}
+		},
+		"S3BucketName": {
+			"Description": "Name of the S3 bucket",
+			"Value": {
+				"Ref": "S3Bucket"
+			}
+		}
+	}
+}
